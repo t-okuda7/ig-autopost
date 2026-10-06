@@ -1,0 +1,9 @@
+# 直接使っているもの。ここを書き換えたら、下のコマンドで requirements.txt を作り直す
+#   pip install pip-tools
+#   pip-compile --generate-hashes --output-file requirements.txt requirements.in
+google-api-python-client==2.201.0
+google-auth==2.59.1
+google-auth-httplib2==0.4.4
+requests==2.34.2
+pillow==12.3.0
+pillow-heif==1.8.0

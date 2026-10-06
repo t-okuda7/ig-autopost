@@ -1,0 +1,56 @@
+name: refresh-token
+
+on:
+  schedule:
+    - cron: "23 18 1,15 * *"   # 毎月2日と16日の 03:23（日本時間）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write   # 定期実行が止められないよう、有効化し直すため
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install --require-hashes -r requirements.txt
+      - name: 新しいトークンを保存できるか、先に確かめる
+        # 延長してから保存に失敗すると新しいトークンを失うので、延長の前に試す
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::GH_PAT が設定されていない。中止する"
+            exit 1
+          fi
+          # 読めるだけでなく、実際に書けることを確かめる（中身に意味のない確認用の値を書く）
+          if ! date -u +%Y-%m-%dT%H:%M:%SZ | gh secret set AUTOPOST_PAT_CHECK --repo "$GITHUB_REPOSITORY"; then
+            echo "::error::GH_PAT でこのリポジトリの Secrets に書き込めない。期限切れか、権限（Secrets: Read and write）が足りない。中止する"
+            exit 1
+          fi
+      - name: トークンを延長する
+        env:
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          TOKEN_OUT: ${{ runner.temp }}/ig_token
+        run: python -m autopost.refresh
+      - name: 新しいトークンを保存する
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh secret set IG_ACCESS_TOKEN --repo "$GITHUB_REPOSITORY" < "$RUNNER_TEMP/ig_token"
+          rm -f "$RUNNER_TEMP/ig_token"
+      - name: 定期実行を有効のままにする
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow enable publish.yml --repo "$GITHUB_REPOSITORY" || true
+          gh workflow enable refresh-token.yml --repo "$GITHUB_REPOSITORY" || true

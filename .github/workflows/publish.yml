@@ -1,0 +1,54 @@
+name: publish
+
+on:
+  schedule:
+    # 15分ごと。毎時0分は混むので避けている。数分〜数十分遅れることがある
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run=点検だけ ／ check=接続の確認 ／ run=今すぐ実行"
+        type: choice
+        options: [dry-run, check, run]
+        default: dry-run
+
+permissions:
+  contents: write   # 写真を media ブランチに置くため
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # 定期実行は、変数 AUTOPOST_ENABLED を true にするまで動かない（止めたいときは false に戻す）
+    if: github.event_name != 'schedule' || vars.AUTOPOST_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install --require-hashes -r requirements.txt
+      - name: Run
+        env:
+          MODE: ${{ github.event.inputs.mode || 'run' }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          DRIVE_MATERIAL_ID: ${{ vars.DRIVE_MATERIAL_ID }}
+          DRIVE_DRAFT_ID: ${{ vars.DRIVE_DRAFT_ID }}
+          DRIVE_POSTED_ID: ${{ vars.DRIVE_POSTED_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m autopost.main "$MODE"
+      - name: 切り抜き後の写真を保存（dry-run のとき）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: preview/
+          if-no-files-found: ignore
+          retention-days: 3
